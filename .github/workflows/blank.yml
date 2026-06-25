@@ -1,107 +1,19 @@
-name: Build libpdfium.so (Android arm64)
-
-on:
-  workflow_dispatch:
-    inputs:
-      pdfium_ref:
-        description: 'pdfium git ref to build (branch/tag, e.g. main or chromium/6996)'
-        required: false
-        default: 'main'
-      enable_v8:
-        description: 'Enable V8/JS engine (needed for XFA forms) — much slower & bigger build'
-        required: false
-        default: 'false'
-      enable_xfa:
-        description: 'Enable XFA forms support (implies enable_v8)'
-        required: false
-        default: 'false'
-
-jobs:
-  build-arm64:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 300
-
-    steps:
-      - name: Free up disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
-          sudo apt-get clean
-          df -h
-
-      - name: Install host build dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y git python3 curl lbzip2 pkg-config
-
-      - name: Fetch depot_tools
-        run: |
-          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools"
-          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
-
-      - name: Fetch pdfium source (no hooks yet)
-        run: |
-          mkdir -p "$HOME/pdfium_workspace"
-          cd "$HOME/pdfium_workspace"
-          fetch --nohooks pdfium
-          # enable android deps (NDK + toolchain) before syncing hooks
-          echo "target_os = ['android']" >> .gclient
-
-      - name: Checkout requested ref
-        if: ${{ inputs.pdfium_ref != 'main' && inputs.pdfium_ref != '' }}
-        run: |
-          cd "$HOME/pdfium_workspace/pdfium"
-          git fetch --depth=1 origin "${{ inputs.pdfium_ref }}"
-          git checkout FETCH_HEAD
-
-      - name: gclient sync (pulls third_party deps, Android NDK, clang)
-        run: |
-          cd "$HOME/pdfium_workspace"
-          gclient sync -j"$(nproc)"
-
-      - name: Generate GN build files
-        run: |
-          cd "$HOME/pdfium_workspace/pdfium"
-          gn gen out/arm64 --args='
-            target_os="android"
-            target_cpu="arm64"
-            is_debug=false
-            is_official_build=false
-            symbol_level=0
-            is_component_build=false
-            pdf_is_standalone=true
-            pdf_enable_v8=${{ inputs.enable_v8 }}
-            pdf_enable_xfa=${{ inputs.enable_xfa }}
-            pdf_use_skia=false
-            treat_warnings_as_errors=false
-            use_custom_libcxx=true
-          '
-
-      - name: Build libpdfium.so
-        run: |
-          cd "$HOME/pdfium_workspace/pdfium"
-          ninja -C out/arm64 pdfium
-
-      - name: Strip and inspect output
-        run: |
-          cd "$HOME/pdfium_workspace/pdfium"
-          SO=out/arm64/libpdfium.so
-          STRIP_BIN=$(find "$HOME/pdfium_workspace" -type f -name 'llvm-strip' 2>/dev/null | head -n1)
-          if [ -n "$STRIP_BIN" ]; then
-            echo "Using $STRIP_BIN"
-            "$STRIP_BIN" --strip-unneeded "$SO"
-          elif command -v llvm-strip >/dev/null 2>&1; then
-            llvm-strip --strip-unneeded "$SO"
-          elif command -v strip >/dev/null 2>&1; then
-            strip --strip-unneeded "$SO"
-          else
-            echo "No strip tool found anywhere, leaving binary unstripped"
-          fi
-          file "$SO"
-          ls -la "$SO"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: libpdfium-android-arm64
-          path: /home/runner/pdfium_workspace/pdfium/out/arm64/libpdfium.so
-          retention-days: 14
+Run cd "$HOME/pdfium_workspace/pdfium"
+  cd "$HOME/pdfium_workspace/pdfium"
+  SO=out/arm64/libpdfium.so
+  STRIP_BIN=$(find "$HOME/pdfium_workspace" -type f -name 'llvm-strip' 2>/dev/null | head -n1)
+  if [ -n "$STRIP_BIN" ]; then
+    echo "Using $STRIP_BIN"
+    "$STRIP_BIN" --strip-unneeded "$SO"
+  elif command -v llvm-strip >/dev/null 2>&1; then
+    llvm-strip --strip-unneeded "$SO"
+  elif command -v strip >/dev/null 2>&1; then
+    strip --strip-unneeded "$SO"
+  else
+    echo "No strip tool found anywhere, leaving binary unstripped"
+  fi
+  file "$SO"
+  ls -la "$SO"
+  shell: /usr/bin/bash -e {0}
+strip: 'out/arm64/libpdfium.so': No such file
+Error: Process completed with exit code 1.
